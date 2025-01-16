@@ -37,7 +37,7 @@ def define_args():
         # Training parameters.
         'solver_path': os.path.join('out', 'solvers', f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pkl"),
         'continue_from': None,
-        'batch_size': 6,
+        'batch_size': 3,
         'num_epochs': 10,
         'num_workers': 1,
         'device': device,
