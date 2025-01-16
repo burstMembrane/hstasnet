@@ -26,14 +26,21 @@ def define_args():
     Returns:
         args (dict): A dictionary containing the parameters for the training routine and the model.
     """
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Use MPS backend if available.
+    if torch.backends.mps.is_available():
+        device = "mps"
+        print("Using MPS Backend for training.")
+
     args = {
         # Training parameters.
         'solver_path': os.path.join('out', 'solvers', f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pkl"),
         'continue_from': None,
-        'batch_size': 12,
-        'num_epochs': 100,
-        'num_workers': 4,
-        'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+        'batch_size': 6,
+        'num_epochs': 10,
+        'num_workers': 1,
+        'device': device,
 
         # Optimizer parameters.
         'learning_rate': 1e-3,
@@ -113,6 +120,10 @@ def main(args, train=True):
 
     # Define criterion.
     criterion = losses.l1_loss
+    # TODO: Add early stopping rules as defined in the paper
+    # The initial learning rate was set to 3 × 10^-4 and was decayed by 0.5 if the validation loss did not improve for 3 epochs. 
+    # Training was stopped if the validation loss did not improve for 10 epochs.
+
 
     # Define optimizer.
     optimizer = torch.optim.Adam(model.parameters(), lr=args['learning_rate'], weight_decay=args['weight_decay'])
