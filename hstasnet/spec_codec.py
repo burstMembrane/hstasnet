@@ -1,35 +1,31 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as ff
-import torchaudio.transforms as tt
-
+import torch  # Core PyTorch
+import torch.nn as nn  # Neural network modules
+import torch.nn.functional as ff  # Functional ops (e.g. activation)
+import torchaudio.transforms as tt  # Audio-specific transforms (STFT, inverse-STFT)
 
 class SpecEncoder(nn.Module):
-
     def __init__(self,
                  n_win: int = 1024,
                  n_hop: int = 512,
                  n_fft: int = 1024,
                  window: str = 'hamming',
-                 device=torch.device('cpu'),
-                 ):
+                 device=torch.device('cpu')):
         """
-        Initialize a new FreqEncoder object.
-
+        Spectrogram-based encoder for converting time-domain signals into
+        magnitude and phase representations (Section 3.2 in the paper).
         Args:
-            n_win (int, optional): The window size. Defaults to 1024.
-            n_hop (int, optional): The hop size. Defaults to 512.
-            n_fft (int, optional): The FFT size. Defaults to 1024.
-            window (str, optional): The window type. Defaults to 'hann'.
-            device (str, optional): The device to use. Defaults to 'cpu'.
+          n_win  : Window size for each STFT frame
+          n_hop  : Hop size (overlap offset) for STFT
+          n_fft  : Number of FFT points, typically >= n_win
+          window : Type of window function (hamming, hann, etc.)
+          device : PyTorch device to place tensors on
         """
-
         super().__init__()
-
         self.n_win = n_win
         self.n_hop = n_hop
         self.n_fft = n_fft
-        
+
+        # Select the appropriate window function based on 'window' argument
         if window == 'bartlett':
             window_fn = torch.bartlett_window
         elif window == 'blackman':
@@ -42,67 +38,66 @@ class SpecEncoder(nn.Module):
             window_fn = torch.kaiser_window
         else:
             raise Exception(f"Invalid window type for STFT : '{window}'.")
-        
+
+        # Create a Spectrogram transform from torchaudio, which outputs
+        # a complex tensor (real + imag) when power=None
+        # normalized=True divides by sum of window elements to scale the data
+        # onesided=True gives only [0..n_fft//2] positive frequencies
+        # center=False avoids time-padding
         self.transform = tt.Spectrogram(
-            n_fft=n_fft, 
-            hop_length=n_hop, 
-            power=None, 
+            n_fft=n_fft,
+            hop_length=n_hop,
+            power=None,
             win_length=n_win,
             window_fn=window_fn,
             normalized=True,
             onesided=True,
-            center=False,
-            ).to(device)        
+            center=False
+        ).to(device)
 
     def forward(self, waveform):
         """
-        Forward pass through the model.
-
-        Args:
-            waveform (torch.Tensor): [B, L]
-
-        Returns:
-            spec_magn (torch.Tensor): [B, T, F]
-            spec_angl (torch.Tensor): [B, T, F]
+        Forward pass: Takes a batch of waveforms [B, L] and returns:
+          spec_magn: [B, T, F] magnitude
+          spec_angl: [B, T, F] phase angles in radians
         """
-        
-        # Compute complex spectrogram.
-        spec = self.transform(waveform)             # [B, F, T]
+        # 1) Compute the complex spectrogram using torchaudio
+        spec = self.transform(waveform)   # Shape: [B, F, T]
 
-        # Compute magnitude spectrogram.
-        spec_magn = torch.abs(spec)                 # [B, F, T]
-        spec_magn = spec_magn.permute(0, 2, 1)      # [B, T, F]
+        # 2) Separate out the magnitude
+        spec_magn = torch.abs(spec)       # [B, F, T]
+        # Rearrange to [B, T, F] for consistency with the time path
+        spec_magn = spec_magn.permute(0, 2, 1)
 
-        # Compute angle spectrogram.
-        spec_angl = torch.angle(spec)
-        spec_angl = spec_angl.permute(0, 2, 1)      # [B, T, F]
+        # 3) Separate out the phase angle
+        spec_angl = torch.angle(spec)     # [B, F, T]
+        spec_angl = spec_angl.permute(0, 2, 1)  # [B, T, F]
 
         return spec_magn, spec_angl
 
 class SpecDecoder(nn.Module):
-
     def __init__(self,
                  n_win: int = 1024,
                  n_hop: int = 512,
                  n_fft: int = 1024,
                  window: str = 'hamming',
-                 device=torch.device('cpu'),
-                 ):
-        """ Initialize a new FreqEncoder object.
-
-        Args:
-            n_win (int, optional): The window size. Defaults to 1024.
-            n_hop (int, optional): The hop size. Defaults to 512.
-            n_fft (int, optional): The FFT size. Defaults to 1024.
-            window (str, optional): The window type. Defaults to 'hann'.
+                 device=torch.device('cpu')):
         """
-                
+        Spectrogram-based decoder for reconstructing time-domain waveforms
+        from magnitude and phase (Section 3.2 in the paper).
+        Args:
+          n_win  : Window size for each inverse-STFT frame
+          n_hop  : Hop size for inverse-STFT
+          n_fft  : Number of FFT points
+          window : Window function type
+          device : PyTorch device for computations
+        """
         super().__init__()
-
         self.n_win = n_win
         self.n_hop = n_hop
         self.n_fft = n_fft
-        
+
+        # Window selection for the inverse STFT
         if window == 'bartlett':
             window_fn = torch.bartlett_window
         elif window == 'blackman':
@@ -115,63 +110,60 @@ class SpecDecoder(nn.Module):
             window_fn = torch.kaiser_window
         else:
             raise Exception(f"Invalid window type for STFT : '{window}'.")
-                
+
+        # InverseSpectrogram from torchaudio reverts a complex spectrogram
+        # back to time-domain audio
         self.transform = tt.InverseSpectrogram(
-            n_fft=n_fft, 
-            hop_length=n_hop, 
+            n_fft=n_fft,
+            hop_length=n_hop,
             win_length=n_win,
             window_fn=window_fn,
             normalized=True,
             onesided=True,
-            center=False,
-            ).to(device)        
-        
+            center=False
+        ).to(device)
 
     def forward(self, spec_magn, spec_angl, waveform_length=None):
-        """ Forward pass through the model.
-
-        Args:
-            spec_magn (torch.Tensor): [*, T, F]
-            spec_angl (torch.Tensor): [*, T, F]        
-            waveform_length (int, optional): The original length of the waveform.
-
-        Returns:
-            waveform (torch.Tensor): [*, L]
         """
+        Forward pass:
+          spec_magn: [B, T, F] magnitude
+          spec_angl: [B, T, F] phase angles
+          waveform_length: optional int specifying final length in samples
+        Returns:
+          waveform: [B, L] the reconstructed waveform
+        """
+        # 1) Convert magnitude and angle back to real & imaginary parts
+        spec_real = spec_magn * torch.cos(spec_angl)  # [B, T, F]
+        spec_imag = spec_magn * torch.sin(spec_angl)  # [B, T, F]
+        spec = torch.complex(spec_real, spec_imag)    # Combine into a complex tensor
 
-        spec_real = spec_magn * torch.cos(spec_angl)                # [B, T, F]
-        spec_imag = spec_magn * torch.sin(spec_angl)                # [B, T, F]
+        # 2) Rearrange dimensions for inverse STFT [B, F, T]
+        spec = spec.permute(0, 2, 1)
 
-        spec = torch.complex(spec_real, spec_imag)                  # [B, T, F]
-        spec = spec.permute(0, 2, 1)                                # [B, F, T]
-
-        waveform = self.transform(spec, length=waveform_length)     # [B, L]
+        # 3) Perform the inverse spectrogram to recover time-domain signal
+        waveform = self.transform(spec, length=waveform_length)  # [B, L]
 
         return waveform
 
 if __name__ == '__main__':
-
-    # Define input.
     B, C, L = 10, 2, 500000
-    x = torch.randn(B, L)
-    print(f'{x.size() = }')
+    x = torch.randn(B, L)  # [10, 500000]
+    print(f'Input shape: {x.size()}')
 
-    # Define encoder.
+    # Instantiate the spectrogram encoder
     encoder = SpecEncoder(window='hamming')
 
-    # Compute output.
+    # Encode to magnitude & angle
     y_magn, y_angl = encoder(x)
-    _, F, T = y_magn.size()
-    print(f'{y_magn.size() = }')
+    print(f'Magnitude shape: {y_magn.size()}')
 
-    # Define decoder.
+    # Instantiate the spectrogram decoder
     decoder = SpecDecoder(window='hamming')
 
-    # Compute output.
+    # Decode back to waveform
     z = decoder(y_magn, y_angl, waveform_length=None)
+    print(f'Decoded shape: {z.size()}')
 
-    print(f'{z.size() = }')
-
-    # Compare input and output.
-    print(f'{x[0, :8] = }')
-    print(f'{z[0, :8] = }')
+    # Compare a short slice of input & output
+    print(f'Original first batch sample (slice): {x[0, :8]}')
+    print(f'Decoded first batch sample (slice):  {z[0, :8]}')
