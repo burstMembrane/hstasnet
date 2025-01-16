@@ -5,7 +5,6 @@ import torchaudio
 import torchaudio.transforms as tt
 import os
 import sys
-import stempeg
 import random
 import shutil
 from tqdm import tqdm
@@ -207,15 +206,15 @@ def split_test_and_valid(database_path, subset_size=20):
 
 
 if __name__ == '__main__':
-
-    database_path_src = "/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq"
-    database_path_dst = "/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq_preprocessed"
+    # TODO: Update these to use a config.yaml or argparse for the src and dst paths
+    database_path_src = "/Volumes/VIDEO/musdb18hq"
+    database_path_dst = "/Volumes/VIDEO/musdb18hq_preprocessed"
 
     test_subset = split_test_and_valid(database_path_src, subset_size=20)
     preprocess_musdb18(database_path_src, database_path_dst, test_subset)
 
     data_augmentation_musdb18(
-        database_path_src="/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq_preprocessed", 
-        database_path_dst="/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq_augmented", 
+        database_path_src="/Volumes/VIDEO/musdb18hq_preprocessed", 
+        database_path_dst="/Volumes/VIDEO/musdb18hq_augmented", 
         augmentation_ratio=4,
         )
