@@ -31,7 +31,7 @@ def define_args():
         'solver_path': os.path.join('out', 'solvers', f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pkl"),
         'continue_from': None, #os.path.join('out', 'models', 'hstasnet_20250115.pt'),
         # TODO: add support for resuming training from a checkpoint.
-        'batch_size': 12,
+        'batch_size': 24,
         'num_epochs': 100,
         'num_workers': 4,
         'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),

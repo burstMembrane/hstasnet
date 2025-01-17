@@ -26,8 +26,15 @@ class Solver:
                  args,
                  device='cpu',
                  ):
-    
-        self.model = model
+
+
+           # Wrap model for multi-GPU if GPUs are available
+        if torch.cuda.device_count() > 1:
+            print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
+            self.model = torch.nn.DataParallel(model)
+        else:
+            self.model = model
+        self.device = device
         self.args = args
         self.criterion = criterion
         self.optimizer = optimizer
