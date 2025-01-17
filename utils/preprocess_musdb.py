@@ -213,14 +213,14 @@ def split_test_and_valid(database_path, subset_size=20):
 
 if __name__ == '__main__':
     # TODO: Update these to use a config.yaml or argparse for the src and dst paths -- hard coding the paths is clunky.
-    database_path_src = "/Volumes/VIDEO/musdb18hq"
-    database_path_dst = "/Volumes/VIDEO/musdb18hq_preprocessed"
+    database_path_src = "/home/liam/.datasets/musdb18hq"
+    database_path_dst = "/home/liam/.datasets/musdb18hq_preprocessed"
 
     test_subset = split_test_and_valid(database_path_src, subset_size=20)
     preprocess_musdb18(database_path_src, database_path_dst, test_subset)
 
     data_augmentation_musdb18(
-        database_path_src="/Volumes/VIDEO/musdb18hq_preprocessed", 
-        database_path_dst="/Volumes/VIDEO/musdb18hq_augmented", 
+        database_path_src="/home/liam/.datasets/musdb18hq_preprocessed", 
+        database_path_dst="/home/liam/.datasets/musdb18hq_augmented", 
         augmentation_ratio=4,
         )
