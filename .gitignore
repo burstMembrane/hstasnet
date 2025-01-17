@@ -4,16 +4,11 @@ old
 .conda
 .vscode
 hstasnet/__pycache__
-<<<<<<< HEAD
 src/__pycache__
-||||||| 736279e
-src/__pycache__
-
+# logs
+*.log
 # Files
 sandbox.ipynb
-=======
-src/__pycache__
 .venv
 # Files
 sandbox.ipynb
->>>>>>> dev
