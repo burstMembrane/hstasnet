@@ -65,7 +65,7 @@ class Solver:
             print(f"\tLearning rate = {last_lr:.6f}")
 
             # Save model.
-            self.trn_loss_history[epoch] = trn_loss
+      
             self.val_loss_history[epoch] = val_loss
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
