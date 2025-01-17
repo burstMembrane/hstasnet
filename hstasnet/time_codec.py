@@ -1,198 +1,180 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as ff
+import torch  # For tensor operations
+import torch.nn as nn  # Provides neural network layers like Linear, LSTM etc.
+import torch.nn.functional as ff  # Functional interface for some operations (e.g. relu, pad)
 
-
-EPS = 1e-8
-
+EPS = 1e-8  # A small constant to avoid division by zero
 
 class TimeEncoder(nn.Module):
-
     def __init__(self,
                  N: int = 1024,
                  O: int = 512,
                  M: int = 1500,
-                 device=torch.device('cpu'),
-                 ):
-        """ Initialize a new TimeEncoder object.
-
-        Args:
-            N (int, optional): The number of channels. Defaults to 1024.
-            O (int, optional): The number of overlap. Defaults to 512.
-            M (int, optional): The number of filters. Defaults to 1500.
-        """        
-
+                 device=torch.device('cpu')):
+        """
+        A learnable time-domain encoder similar to the TasNet front-end (Section 3.2 in the paper).
+        - N: frame size for segmenting the waveform into overlapping chunks
+        - O: hop size (overlap) between chunks
+        - M: the encoded feature dimension, i.e. how many learned basis signals
+        """
         super().__init__()
+        self.N = N  # Number of samples per frame
+        self.O = O  # Number of samples to shift for the next frame
+        self.M = M  # Encoded feature dimension
 
-        self.N = N
-        self.O = O
-        self.M = M
+        # "conv" transforms each frame into M latent features (learned basis).
+        self.conv = nn.Linear(in_features=N, out_features=M, device=device)
 
-        self.conv = nn.Linear(
-            in_features=N,
-            out_features=M,
-            device=device, 
-            )
+        # "gate" produces a gating signal for each of those M features (similar to GLU).
+        self.gate = nn.Linear(in_features=N, out_features=M, device=device)
 
-        self.gate = nn.Linear(
-            in_features=N,
-            out_features=M,
-            device=device,         
-            )   
-                 
+        # Non-linearities used after linear layers
         self.relu = ff.relu
         self.sigmoid = torch.sigmoid
 
     def forward(self, waveform):
-        """ Forward pass through the model.
-        
-        Args:
-            waveform (torch.Tensor): [B, L]
-        
-        Returns:
-            x_norm (torch.Tensor): [B, T, 1]
-            x (torch.Tensor): [B, T, M]
         """
+        Forward pass:
+        waveform: [B, L], where B=batch, L=samples per batch entry.
 
-        # Signal to overlapped frames.
-        x = waveform.unfold(1, size=self.N, step=self.O)        # B x T x N
-        
-        # Normalize the frames.
-        x_norm = torch.norm(x, p=2, dim=2, keepdim=True)        # B x T x 1
-        x = x / (x_norm + EPS)                                  # B x T x N
+        Returns:
+          x     : [B, T, M] encoded features (T=number of frames, M=dimension)
+          x_norm: [B, T, 1] L2 norm of each frame, for use in the decoder
+        """
+        # 1) Convert the 1D signals into overlapping frames of size N with hop O.
+        x = waveform.unfold(dimension=1, size=self.N, step=self.O)  # shape: [B, T, N]
 
-        # Linear transformation.
-        conv = self.relu(self.conv(x))                          # B x T x M
-        gate = self.sigmoid(self.gate(x))                       # B x T x M
+        # 2) Compute L2 norm of each frame for normalisation (avoid large amplitude).
+        x_norm = torch.norm(x, p=2, dim=2, keepdim=True)  # shape: [B, T, 1]
 
-        # Compute mixture weights.
-        x = conv * gate                                         # B x T x M
+        # 3) Normalise each frame by its L2 norm to have magnitude ~1 (plus EPS to avoid /0).
+        x = x / (x_norm + EPS)  # shape remains [B, T, N]
+
+        # 4) Apply learned basis (conv) with ReLU, plus gate with sigmoid, then combine (GLU-like).
+        conv = self.relu(self.conv(x))       # [B, T, M]
+        gate = self.sigmoid(self.gate(x))    # [B, T, M]
+        x = conv * gate                      # Element-wise gating to produce final features
 
         return x, x_norm
 
 
 class TimeDecoder(nn.Module):
-
     def __init__(self,
                  N: int = 1024,
                  O: int = 512,
                  M: int = 1500,
-                 device=torch.device('cpu'),
-                 ):
-        """ Initialize a new TimeDecoder object.
-
-        Args:
-            N (int, optional): The number of channels. Defaults to 1024.
-            O (int, optional): The number of overlap. Defaults to 512.
-            M (int, optional): The number of filters. Defaults to 1500.
-        """                
-
+                 device=torch.device('cpu')):
+        """
+        A learnable time-domain decoder that inverts the TimeEncoder (Section 3.2 in the paper).
+        - N: frame size
+        - O: hop size
+        - M: encoded feature dimension
+        """
         super().__init__()
-
         self.N = N
         self.O = O
         self.M = M
 
-        self.linear = nn.Linear(
-            in_features=M,
-            out_features=N,
-            device=device, 
-            )
+        # Linear layer to map M-dim features back to N samples per frame
+        self.linear = nn.Linear(in_features=M, out_features=N, device=device)
 
-    def forward(self, waveform_encoding, waveform_norm, waveform_length = None):
-        """ Forward pass through the model.
-
-        Args:
-            waveform_encoding (torch.Tensor): [B, T, M]
-            waveform_norm (torch.Tensor): [B, T, 1]
-        
-        Returns:
-            x (torch.Tensor): [B, L]
+    def forward(self, waveform_encoding, waveform_norm, waveform_length=None):
         """
+        Forward pass:
+          waveform_encoding: [B, T, M] the time-domain features from TimeEncoder
+          waveform_norm    : [B, T, 1] the L2 norms used to scale back the magnitude
+          waveform_length  : optional integer specifying final signal length
 
-        # Linear transformation (decoder filtering).
-        x = self.linear(waveform_encoding)                  # B x T x N
+        Returns:
+          x: [B, L] time-domain signal reconstructed from frames
+        """
+        # 1) Map encoded features back to waveforms frames via learned linear transform.
+        x = self.linear(waveform_encoding)  # [B, T, N]
 
-        # Reverse L2 normalization.
-        x = x * waveform_norm                               # B x T x N
+        # 2) Reverse the L2 normalisation step using the stored norms.
+        x = x * waveform_norm  # [B, T, N]
 
-        # Overlapped frames to signal.
-        x = overlap_add(x, self.N//self.O)                  # B x L
+        # 3) Merge the overlapped frames back into a continuous signal.
+        #    overlap_ratio = N // O, e.g. 1024 // 512 = 2
+        x = overlap_add(x, self.N // self.O)  # [B, L]
 
+        # 4) Optionally pad the output to a desired length.
         if waveform_length:
             L = x.size(-1)
-            x = ff.pad(x, (0, waveform_length-L), 'constant')            # B x L_padded     
+            pad_amount = waveform_length - L
+            x = ff.pad(x, (0, pad_amount), mode='constant')  # left=0, right=pad_amount
 
         return x
-    
+
 
 def overlap_add(frames, overlap_ratio=2):
-    """ Overlap-adds a batch of frames back into a batch of signals.
+    """
+    Combine overlapping frames to reconstruct time-domain signals.
 
-    Args:
-        frames (torch.Tensor): Batch of frames, size [batch_size, num_frames, frame_size].
-        hop_size (int): The hop size (in samples) used when the frames where created.
+    frames: [B, T, N], T=number of frames, N=frame_size
+    overlap_ratio: typically N//O (for T=overlap_ratio * (T-1) + 1 frames in total).
+                   e.g. 1024//512 = 2
 
     Returns:
-        signal (torch.Tensor): Batch of signal, size [batch_size, signal_size].
+      signal: [B, L] where L is the recovered length after overlap-add
     """
-
     batch_size, num_frames, frame_size = frames.size()
     overlap_size = frame_size // overlap_ratio
 
-    # Recover the original signal size.
+    # Compute final signal length after stitching frames with overlap
     signal_size = (num_frames - 1) * overlap_size + frame_size
 
-    # Initialize the signal tensor.
+    # Prepare empty container for the reconstructed signal
     signal = torch.zeros(batch_size, signal_size, dtype=frames.dtype, device=frames.device)
 
-    # Sum the overlapping frames.
+    # Add each frame into the correct segment of the signal
     for i in range(num_frames):
         start_idx = i * overlap_size
         end_idx = start_idx + frame_size
         signal[:, start_idx:end_idx] += frames[:, i, :]
-    
-    # Handle the edge case.
+
+    # Multiply the extreme edges to adjust for partial overlaps
     signal[:, :overlap_size] *= overlap_ratio
     signal[:, -overlap_size:] *= overlap_ratio
-    for i in range(1, overlap_ratio-1):
+
+    # Gradually taper the frames in the middle region for a smoother composite
+    for i in range(1, overlap_ratio - 1):
         start_idx = i * overlap_size
         end_idx = start_idx + overlap_size
-        signal[:, start_idx:end_idx] *= (overlap_ratio/(i+1))
-        signal[:, -end_idx:-start_idx] *= (overlap_ratio/(i+1))
-        
-    # Normalize the reconstructed signal.
+        scale = overlap_ratio / (i + 1)
+        signal[:, start_idx:end_idx] *= scale
+        signal[:, -end_idx:-start_idx] *= scale
+
+    # Divide the entire signal by overlap_ratio at the end
     signal /= overlap_ratio
 
     return signal
 
 
 if __name__ == '__main__':
+    # Example usage
+    B, C, S, L = 10, 2, 4, 500000  # B=batch, C=channels, S=sources (unused here), L=samples
+    x = torch.randn(B, L)         # [10, 500000] random waveforms
+    print(f'Input shape: {x.size()}')
 
-    # Define input.
-    B, C, S, L = 10, 2, 4, 500000
-    x = torch.randn(B, L)
-    print(f'{x.size() = }')
-
-    # Define encoder.
+    # Instantiate the TimeEncoder with typical settings
     N, O, M = 1024, 512, 1000
     encoder = TimeEncoder(N=N, O=O, M=M)
 
-    # Compute output.
-    y, y_norm = encoder(x)
-    print(f'{y.size() = }')
-    print(f'{y_norm.size() = }')
+    # Encode
+    y, y_norm = encoder(x)  # y: [B, T, M], y_norm: [B, T, 1]
+    print(f'Encoded shape: {y.size()}')
+    print(f'Frame norm shape: {y_norm.size()}')
 
-    # Define decoder.
+    # Instantiate a corresponding TimeDecoder
     decoder = TimeDecoder(N=N, O=O, M=M)
 
-    # Compute output.
-    z = decoder(y, y_norm, waveform_length=None)
-    print(f'{z.size() = }')
+    # Decode
+    z = decoder(y, y_norm, waveform_length=None)  # z: [B, L']
+    print(f'Decoded shape: {z.size()}')
 
-    # Check overlap-add.
-    x = torch.ones(10, 16)
-    y = x.unfold(1, size=4, step=2)
-    z = overlap_add(y, 2)
-    print(f'{x[0] = }')
-    print(f'{z[0] = }')
+    # Check overlap_add specifically
+    x_ones = torch.ones(10, 16)
+    frames = x_ones.unfold(1, size=4, step=2)  # shape: [B, T=7, N=4]
+    recons = overlap_add(frames, 2)
+    print(f'Original first row: {x_ones[0]}')
+    print(f'Reconstructed first row: {recons[0]}')

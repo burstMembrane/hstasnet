@@ -88,4 +88,5 @@ def plot_loss_from_log_file(log_path):
 if __name__ == '__main__':
 
     log_path = r"logs/train.log"
+    # parses the log file for the loss values and plots them
     plot_loss_from_log_file(log_path)

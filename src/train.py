@@ -73,7 +73,7 @@ def define_loaders(args):
         loaders (dict): Dictionary containing the DataLoaders.
     """
         
-    root = os.path.join('/home/ovistetom/Documents/Databases_Local/MUSDB18', 'musdb18hq_augmented')
+    root = os.path.join('/volumes/VIDEO/', 'musdb18hq_augmented')
     sources = args['model_srcs']
 
     trn_dataset = MUSDB18Dataset(root, 'train', sources)

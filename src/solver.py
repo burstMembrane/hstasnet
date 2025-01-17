@@ -57,7 +57,7 @@ class Solver:
             with torch.no_grad():             
                 val_loss = self._run_one_val_epoch()
 
-            print(f"Valid Summary | Epoch {epoch+1:02d} | Loss = {val_loss:.3f}")
+            print(f"Validation Summary | Epoch {epoch+1:02d} | Loss = {val_loss:.3f}")
 
             # Update scheduler.
             self.scheduler.step()

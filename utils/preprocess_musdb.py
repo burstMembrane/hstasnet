@@ -5,7 +5,6 @@ import torchaudio
 import torchaudio.transforms as tt
 import os
 import sys
-import stempeg
 import random
 import shutil
 from tqdm import tqdm
@@ -134,6 +133,10 @@ def data_augmentation_musdb18(database_path_src, database_path_dst, augmentation
     Returns:
         database_path_dst (str): Path to the data-augmented MUSDB18 dataset (with WAV files).
     """
+
+    # TODO: We could apply some more augmentations to that dataset with `Scaper` possibly. 
+    # We should look into the most common augmentations for audio data.
+    # IDEA: Use a timestretching augmentation to match stems of different lengths.
     # Create the destination folder if it doesn't exist.
     os.makedirs(database_path_dst, exist_ok=True)    
 
@@ -153,7 +156,9 @@ def data_augmentation_musdb18(database_path_src, database_path_dst, augmentation
     
         # Loop until the desired amount of files have been created.
         for k in tqdm(range((augmentation_ratio-1)*track_list_length), desc=f'Creating new files for {subset_name} subset.'):
-
+            # check if it is alredy created
+            if os.path.exists(os.path.join(subset_path_dst, f'track_1{k:03}00')):
+                continue
             # Define list of stem tensors.
             stems_tensor_list = []
 
@@ -207,15 +212,15 @@ def split_test_and_valid(database_path, subset_size=20):
 
 
 if __name__ == '__main__':
-
-    database_path_src = "/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq"
-    database_path_dst = "/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq_preprocessed"
+    # TODO: Update these to use a config.yaml or argparse for the src and dst paths -- hard coding the paths is clunky.
+    database_path_src = "/home/liam/.datasets/musdb18hq"
+    database_path_dst = "/home/liam/.datasets/musdb18hq_preprocessed"
 
     test_subset = split_test_and_valid(database_path_src, subset_size=20)
     preprocess_musdb18(database_path_src, database_path_dst, test_subset)
 
     data_augmentation_musdb18(
-        database_path_src="/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq_preprocessed", 
-        database_path_dst="/home/ovistetom/Documents/Databases_Local/MUSDB18/musdb18hq_augmented", 
+        database_path_src="/home/liam/.datasets/musdb18hq_preprocessed", 
+        database_path_dst="/home/liam/.datasets/musdb18hq_augmented", 
         augmentation_ratio=4,
         )
