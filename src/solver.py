@@ -76,7 +76,10 @@ class Solver:
             self.val_loss_history[epoch] = val_loss
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
-                self.model.save_to_path(self.args['model_path'])
+                if isinstance(self.model, torch.nn.DataParallel):
+                    self.model.module.save_to_path(self.args['model_path'])
+                else:
+                    self.model.save_to_path(self.args['model_path'])
                 print(f"Best model saved at '{self.args['model_path']}'.")
 
             self.running_epoch += 1
@@ -201,15 +204,20 @@ class Solver:
         return package
     
     def save_to_path(self, solver_path):
-        """Save the solver to a given file path.
+        """Save the solver to a given file path."""
+        # If the model is wrapped in DataParallel, access the underlying model
+        model_to_save = self.model.module if isinstance(self.model, torch.nn.DataParallel) else self.model
 
-        Args:
-            solver_path (str): The file path to save the solver to.
-        Returns:
-            solver_path (str): The file path to save the solver to.
-        """
-        solver_package = self.serialize()
-        with open(solver_path, 'wb') as solver_file: 
+        solver_package = {
+            'model_state_dict': model_to_save.state_dict(),  # Save the underlying model's state dict
+            'optimizer_dict': self.optimizer.state_dict(),
+            'scheduler_dict': self.scheduler.state_dict(),
+            'running_epoch': self.running_epoch,
+            'trn_loss_history': self.trn_loss_history.tolist(),
+            'val_loss_history': self.val_loss_history.tolist(),
+        }
+        
+        with open(solver_path, 'wb') as solver_file:
             pickle.dump(solver_package, solver_file)
 
         return solver_path
