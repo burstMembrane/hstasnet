@@ -3,22 +3,18 @@ import sys
 import torch
 from torch.utils.data import DataLoader
 from datetime import datetime
+from pathlib import Path
 
-
-# Add necessary directories to the path.
-parent_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(os.path.join(parent_directory, 'data'))
-sys.path.append(os.path.join(parent_directory, 'out'))
-sys.path.append(os.path.join(parent_directory, 'hstasnet'))
-sys.path.append(os.path.join(parent_directory, 'logs'))
-sys.stdout = open(os.path.join('logs', 'train.log'), 'wt')
-
-
-import losses
-from solver import Solver
-from dataset import MUSDB18Dataset
+from src.losses import l1_loss
+from src.solver import Solver
+from src.dataset import MUSDB18Dataset
 from hstasnet import HSTasNet
 from config.parse import parse_config
+import argparse
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 def define_args():
     """Define the training parameters.
@@ -28,8 +24,8 @@ def define_args():
     """
     args = {
         # Training parameters.
-        'solver_path': os.path.join('out', 'solvers', f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pkl"),
-        'continue_from': os.path.join('out', 'models', 'hstasnet_20250118.pt'), #os.path.join('out', 'models', 'hstasnet_20250115.pt'),
+        'solver_path': Path('out') / 'solvers' / f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pkl",
+        'continue_from': Path('out') / 'models' / 'hstasnet_20250118.pt', #Path('out') / 'models' / 'hstasnet_20250115.pt',
         # TODO: add support for resuming training from a checkpoint.
         'batch_size': 32,
         'num_epochs': 100,
@@ -42,7 +38,7 @@ def define_args():
 
         # Model parameters.
         'model_name': 'hstasnet',
-        'model_path': os.path.join('out', 'models', f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pt"),
+        'model_path': Path('out') / 'models' / f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pt",
         'model_srcs': ['bass', 'drums', 'other', 'vocals'],
         'model_args': {
             'num_sources': 4,
@@ -55,7 +51,7 @@ def define_args():
             'spec_fft_size': 1024,
             'rnn_hidden_size': 512,            
             },
-        "dataset_path": os.path.join('/home/liam/.datasets/', 'musdb18hq_augmented'),
+        "dataset_path": Path('/home/liam/.datasets/') / 'musdb18hq_augmented',
         # Other parameters.
         'log_path': os.path.join('out', 'logs', f"hstasnet_{datetime.today().strftime('%Y%m%d')}.log"),
         }
@@ -118,7 +114,7 @@ def main(args, train=True):
     model = HSTasNet(**args['model_args'])
     os.makedirs(os.path.dirname(args['model_path']), exist_ok=True)
 
-    criterion = losses.l1_loss
+    criterion = l1_loss
     # Define criterion.
 
     # Define optimizer.
@@ -144,15 +140,23 @@ def main(args, train=True):
 
 if __name__ == '__main__':
 
+
+    parser = argparse.ArgumentParser(description='Train the HSTasNet model.')
+    parser.add_argument('--config', type=str, default='./config/train.yaml', help='Path to the configuration file.')
+    args = parser.parse_args()
     # Empty the GPU cache.
     torch.cuda.empty_cache()
 
     print("*** START TRAINING ***\n")
 
     # Read parameters for the training routine and the model.
-    args = parse_config()
+    if not Path(args.config).exists():
+        logger.error(f"No configuration file found at {args.config}")
+        
+    
+    config = parse_config(args.config)
 
     # Train the model.
-    solver = main(args, train=True)
+    solver = main(config, train=True)
 
     print("\n*** FINISHED TRAINING ***")
