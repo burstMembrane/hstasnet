@@ -208,12 +208,10 @@ class HSTasnetEvaluator:
             "ground_truth": {},
             "perf_stats": perf_stats
         }
-        
         # Load ground truth stems
         for stem in stem_names:
             audio, _ = self.load_and_validate_audio(track_path / f"{stem}.wav", segment_length)
             results["ground_truth"][stem] = fade_transform(audio).cpu()
-            
         # # Calculate metrics
         metrics = self.calculate_metrics(mixture, results)
         # add the metrics to the results

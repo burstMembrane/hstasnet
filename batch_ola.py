@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 import torchaudio
 from torchaudio.transforms import Fade
-from tqdm import tqdm
+
 
 # Add project root to Python path
 project_root = Path.cwd()
@@ -17,7 +17,7 @@ sys.path.append(str(project_root / "hstasnet"))
 import argparse
 import logging
 import time
-
+import shutil
 from hstasnet.hstasnet import HSTasNet
 from src.states import load_model_from_package
 
@@ -25,18 +25,18 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-@profile
 def overlap_add_separation(
-    model, mix, sample_rate, chunk, overlap, device=None, num_sources=4
+    model, mix, sample_rate, chunk, overlap, device=None, num_sources=4, batch_size=None
 ):
+
     start = time.perf_counter()
     chunk_len = int(sample_rate * chunk)
     overlap_len = int(sample_rate * overlap)
     step_size = chunk_len - overlap_len
 
-    batch_size, num_channels, total_len = mix.shape
+    input_batch_size, num_channels, total_len = mix.shape
     output = torch.zeros(
-        batch_size, num_sources, num_channels, total_len, device=device
+        input_batch_size, num_sources, num_channels, total_len, device=device
     )
     fade = Fade(overlap_len, overlap_len, "linear")(
         torch.ones(1, chunk_len, device=device)
@@ -55,12 +55,25 @@ def overlap_add_separation(
         chunks.append(chunk_raw)
         chunk_idxs.append((start_pos, end_pos))
 
-    # 2) Single batched forward pass
+    # 2) Batched forward pass
     chunks_tensor = torch.cat(chunks, dim=0).to(
         device
-    )  # shape [n_chunks*batch_size, channels, chunk_len]
+    )  # [n_chunks * batch_size, channels, chunk_len]
+    num_chunks = chunks_tensor.shape[0]
+
+    logger.info(
+        f"Split into {num_chunks} chunks of length {chunk_len} ({chunk_len / sample_rate:.2f} seconds)"
+    )
+
     with torch.no_grad():
-        processed_batch = model(chunks_tensor)
+        if batch_size is None:
+            processed_batch = model(chunks_tensor)
+        else:
+            processed_batch = []
+            for i in range(0, num_chunks, batch_size):
+                batch = chunks_tensor[i : i + batch_size]
+                processed_batch.append(model(batch))
+            processed_batch = torch.cat(processed_batch, dim=0)
 
     # 3) Reassemble
     n = 0
@@ -72,9 +85,9 @@ def overlap_add_separation(
             processed_batch = F.pad(
                 processed_batch, (0, chunk_len - processed_batch.size(-1))
             )
-        processed_chunk = processed_batch[n : n + batch_size] * fade
+        processed_chunk = processed_batch[n : n + input_batch_size] * fade
         output[:, :, :, start_pos:end_pos] += processed_chunk[:, :, :, :current_len]
-        n += batch_size
+        n += input_batch_size
 
     end = time.perf_counter()
     logger.info(f"Processing took {end - start:.2f} seconds")
@@ -100,10 +113,13 @@ def get_args():
         "--overlap", type=float, default=0.1, help="Overlap length in seconds"
     )
     parser.add_argument(
-        "--chunk_length", type=float, default=2.0, help="chunk length in seconds"
+        "--chunk_length", type=float, default=2.0, help="Chunk length in seconds"
     )
     parser.add_argument(
         "--num_sources", type=int, default=4, help="Number of sources to separate"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=None, help="Batch size for model processing"
     )
 
     return parser.parse_args()
@@ -127,16 +143,19 @@ def main():
         overlap=args.overlap,
         device=args.device,
         num_sources=args.num_sources,
+        batch_size=args.batch_size,
     )
     # save the output to output_dir
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    # get the input_audio stem
+    input_stem = args.input_audio.parent.stem
     # save with instruments [bass, drums, other, vocals]
     for i, source in enumerate(["bass", "drums", "other", "vocals"]):
-        output_path = output_dir / f"{source}.wav"
+        # copy the ground truth audio to the output directory
+        output_path = output_dir / input_stem / f"{source}_pred.wav"
         sf.write(output_path, output[0, i].cpu().numpy().T, sr)
         logger.info(f"Saved {source} to {output_path}")
-
 
 if __name__ == "__main__":
     main()
