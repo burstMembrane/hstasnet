@@ -112,8 +112,8 @@ def main(args, train=True):
     model = HSTasNet(**args['model_args'])
     os.makedirs(os.path.dirname(args['model_path']), exist_ok=True)
 
-    # Define criterion.
     criterion = losses.l1_loss
+    # Define criterion.
 
     # Define optimizer.
     optimizer = torch.optim.Adam(model.parameters(), lr=args['learning_rate'], weight_decay=args['weight_decay'])

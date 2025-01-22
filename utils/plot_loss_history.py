@@ -82,7 +82,7 @@ def plot_loss_from_log_file(log_path):
 
     fig.tight_layout()
     plt.show()
-
+    plt.savefig('loss_history.png')
     return log_path
 
 if __name__ == '__main__':

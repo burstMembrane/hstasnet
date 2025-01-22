@@ -1,7 +1,18 @@
 import torch
 import pickle
 from tqdm import tqdm
-from states import load_solver_package_from_path
+import os
+import sys
+# Add necessary directories to the path.
+parent_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(parent_directory, 'data'))
+sys.path.append(os.path.join(parent_directory, 'out'))
+sys.path.append(os.path.join(parent_directory, 'hstasnet'))
+sys.path.append(os.path.join(parent_directory, 'logs'))
+
+
+from src.states import load_solver_package_from_path
+
 
 
 class Solver:
