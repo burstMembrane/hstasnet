@@ -1,3 +1,5 @@
+import mlflow
+import mlflow.pytorch
 import torch
 import pickle
 from tqdm import tqdm
@@ -13,8 +15,6 @@ sys.path.append(os.path.join(parent_directory, 'src'))
 from pathlib import Path
 
 from states import load_model_from_package
-
-
 
 class Solver:
     """A class to train and evaluate a PyTorch model.
@@ -38,15 +38,12 @@ class Solver:
                  args,
                  device='cpu',
                  ):
-
-
-           # Wrap model for multi-GPU if GPUs are available
+        mlflow.start_run()  # Start MLflow run
         if torch.cuda.device_count() > 1:
             print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
             self.model = torch.nn.DataParallel(model)
         else:
             self.model = model
-
 
         self.device = device
         self.args = args
@@ -61,10 +58,18 @@ class Solver:
         self.val_loss_history = torch.zeros(self.num_epochs, device=device)
         self._reset()
 
+        # Log hyperparameters to MLflow
+        mlflow.log_params({
+            **args,
+            "num_epochs": self.num_epochs,
+            "learning_rate": self.optimizer.param_groups[0]['lr'],
+            "scheduler_step_size": args.get('scheduler_step_size', None),
+            "device": self.device,
+            "model_name": model.__class__.__name__,
+        })
+
     def train(self):
-
         for epoch in range(self.running_epoch, self.num_epochs):
-
             print('---------------------------------------')
             
             # Train.
@@ -72,21 +77,25 @@ class Solver:
             trn_loss = self._run_one_trn_epoch()
 
             print(f"Train Summary | Epoch {epoch+1:02d} | Loss = {trn_loss:.3f}")
+            mlflow.log_metric("train_loss", trn_loss, step=epoch)
 
             # Validate.
             self.model.eval()
-            with torch.no_grad():             
+            with torch.no_grad():
                 val_loss = self._run_one_val_epoch()
-
+            # log the GPU memory usage
+            print(f"GPU memory usage: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+            mlflow.log_metric("gpu_memory_usage", torch.cuda.memory_allocated() / 1e9, step=epoch)
             print(f"Validation Summary | Epoch {epoch+1:02d} | Loss = {val_loss:.3f}")
+            mlflow.log_metric("val_loss", val_loss, step=epoch)
 
             # Update scheduler.
             self.scheduler.step()
             last_lr = self.scheduler.get_last_lr()[0]
             print(f"\tLearning rate = {last_lr:.6f}")
+            mlflow.log_metric("learning_rate", last_lr, step=epoch)
 
-            # Save model.
-      
+            # Save model if validation loss improves.
             self.val_loss_history[epoch] = val_loss
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
@@ -95,21 +104,20 @@ class Solver:
                 else:
                     self.model.save_to_path(self.args['model_path'])
                 print(f"Best model saved at '{self.args['model_path']}'.")
-    
+                mlflow.pytorch.log_model(self.model, "best_model")
+
             self.running_epoch += 1
         
         self.save_to_path(self.args['solver_path'])
         print(f"Solver saved at '{self.args['solver_path']}'.")
         print('---------------------------------------')
 
+        mlflow.end_run()  # End MLflow run
         return self
 
     def _run_one_trn_epoch(self):
-
         running_loss = 0.0
         for i, batch_i in enumerate(tqdm(self.loaders['trn_loader'], "Training epoch")):
-
-            # Get the inputs and targets.
             batch_mixture, batch_sources = batch_i
             batch_mixture = batch_mixture.to(self.device)
             batch_sources = batch_sources.to(self.device)
@@ -121,7 +129,7 @@ class Solver:
             # Compute loss.
             loss = self.criterion(batch_outputs, batch_sources, reduction='mean')
 
-            # Backward pass and optimization.
+            # Backward pass and optimisation.
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -129,13 +137,10 @@ class Solver:
             running_loss += loss.item()
 
         return running_loss
-    
-    def _run_one_val_epoch(self):        
 
+    def _run_one_val_epoch(self):
         running_loss = 0.0
         for i, batch_i in enumerate(tqdm(self.loaders['val_loader'], "Validating epoch")):
-
-            # Get the inputs and targets.
             batch_mixture, batch_sources = batch_i
             batch_mixture = batch_mixture.to(self.device)
             batch_sources = batch_sources.to(self.device)
@@ -148,8 +153,8 @@ class Solver:
             loss = self.criterion(batch_outputs, batch_sources, reduction='mean')
             running_loss += loss.item()
 
-        return running_loss    
-    
+        return running_loss
+
     def test(self):
 
         self.model.eval()
@@ -157,7 +162,7 @@ class Solver:
             tst_loss = self._run_one_tst_epoch()
 
             print(f"Test Summary  | Loss = {tst_loss:.3f}")
-            
+
     def _run_one_tst_epoch(self):
 
         running_loss = 0.0
@@ -176,26 +181,25 @@ class Solver:
             loss = self.criterion(batch_outputs, batch_sources, reduction='mean')
             running_loss += loss.item()
 
-        return running_loss        
+        return running_loss
 
     def _reset(self):
 
         if self.args['continue_from']:
             print('---------------------------------------')
-            print(f"Loading checkpoint solver: '{self.args['continue_from']}'.")     
+            print(f"Loading checkpoint solver: '{self.args['continue_from']}'.")
             checkpoint_path = Path(self.args['continue_from'])
             if not checkpoint_path.exists():
                 raise FileNotFoundError(f"Checkpoint '{self.args['continue_from']}' not found.")
-            
+
             model_package = torch.load(str(checkpoint_path))
             self.model.module.load_state_dict(model_package['state_dict'])
             print(f"Model loaded from '{self.args['continue_from']}'.")
-      
+
             # self.optimizer.load_state_dict(package['optimizer_dict'])
             # self.scheduler.load_state_dict(package['scheduler_dict'])
             # self.running_epoch = package['running_epoch']
 
-            
             # self.trn_loss_history[:self.running_epoch] = torch.Tensor(package['trn_loss_history'][:self.running_epoch]).to(self.device)
             # self.val_loss_history[:self.running_epoch] = torch.Tensor(package['val_loss_history'][:self.running_epoch]).to(self.device)
             # TODO: Remove this when the model is trained for real
@@ -228,7 +232,7 @@ class Solver:
             }
         
         return package
-    
+
     def save_to_path(self, solver_path):
         """Save the solver to a given file path."""
         # If the model is wrapped in DataParallel, access the underlying model

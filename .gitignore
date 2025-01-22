@@ -14,3 +14,5 @@ sandbox.ipynb
 sandbox.ipynb
 output
 __pycache__
+# mlflow
+mlruns
