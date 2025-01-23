@@ -14,3 +14,6 @@ sandbox.ipynb
 sandbox.ipynb
 output
 __pycache__
+*.png
+*.wav
+*.jpg
