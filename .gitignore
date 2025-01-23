@@ -16,3 +16,6 @@ output
 __pycache__
 # mlflow
 mlruns
+*.png
+*.wav
+*.jpg

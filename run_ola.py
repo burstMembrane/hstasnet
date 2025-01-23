@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-@profile
 def overlap_add_separation(
     model, mix, sample_rate, chunk, overlap, device=None, num_sources=4
 ):
