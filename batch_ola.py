@@ -8,7 +8,6 @@ import torch.nn.functional as F
 import torchaudio
 from torchaudio.transforms import Fade
 
-
 # Add project root to Python path
 project_root = Path.cwd()
 sys.path.append(str(project_root))
@@ -16,8 +15,9 @@ sys.path.append(str(project_root / "hstasnet"))
 
 import argparse
 import logging
-import time
 import shutil
+import time
+
 from hstasnet.hstasnet import HSTasNet
 from src.states import load_model_from_package
 
@@ -150,12 +150,23 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     # get the input_audio stem
     input_stem = args.input_audio.parent.stem
+    # copy the mixture audio
     # save with instruments [bass, drums, other, vocals]
+
+    output_dir = Path(args.output_dir) / input_stem
+    output_dir.mkdir(parents=True, exist_ok=True)
     for i, source in enumerate(["bass", "drums", "other", "vocals"]):
         # copy the ground truth audio to the output directory
-        output_path = output_dir / input_stem / f"{source}_pred.wav"
+        # copy the mixture
+
+        shutil.copy(
+            args.input_audio.parent / f"{source}.wav",
+            output_dir / f"{source}_gt.wav",
+        )
+        output_path = output_dir / f"{source}_pred.wav"
         sf.write(output_path, output[0, i].cpu().numpy().T, sr)
         logger.info(f"Saved {source} to {output_path}")
+
 
 if __name__ == "__main__":
     main()
