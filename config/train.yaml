@@ -3,7 +3,7 @@ batch_size: 32
 num_epochs: 100
 num_workers: 4
 device: "cuda"  # or "cpu"
-
+sample_rate: 44100
 # Optimizer parameters
 learning_rate: 0.001
 weight_decay: 0.00001
@@ -14,7 +14,7 @@ model_path: "out/models/hstasnet_20250123.pt"
 solver_path: "out/solvers/hstasnet_20250123.pkl"
 continue_from: "out/models/hstasnet_20250118.pt"
 # TODO: add support for resuming training from a checkpoint.
-dataset_path: /home/liam/.datasets/musdb18hq_augmented
+dataset_path: /home/liam/.datasets/musdb_test
 model_srcs:
   - "bass"
   - "drums"
@@ -33,3 +33,17 @@ model_args:
 
 # Other parameters
 log_path: "out/logs/hstasnet_20250123.log"
+
+test:
+  test_dir: /home/liam/.datasets/musdb_test/test
+  test_tracks:
+     - track_000000
+     - track_000001
+     - track_000002
+     - track_000003
+     - track_000004
+     - track_000005
+     - track_000006
+     - track_000007
+     - track_000008
+     - track_000100

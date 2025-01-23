@@ -4,7 +4,13 @@ import torch
 import pickle
 from tqdm import tqdm
 import os
+import torchaudio
+import numpy as np
+from asteroid.metrics import get_metrics
+import matplotlib.pyplot as plt
 import sys
+
+from mlflow.models.signature import infer_signature
 # Add necessary directories to the path.
 parent_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.join(parent_directory, 'data'))
@@ -13,8 +19,12 @@ sys.path.append(os.path.join(parent_directory, 'hstasnet'))
 sys.path.append(os.path.join(parent_directory, 'logs'))
 sys.path.append(os.path.join(parent_directory, 'src'))
 from pathlib import Path
-
+from datetime import datetime
 from states import load_model_from_package
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 class Solver:
     """A class to train and evaluate a PyTorch model.
@@ -38,6 +48,9 @@ class Solver:
                  args,
                  device='cpu',
                  ):
+        
+        mlflow.enable_system_metrics_logging()  # Enable system metrics logging
+        mlflow.set_experiment(f"/hstasnet_{datetime.now().strftime('%Y%m%d%H%M%S')}")  # Set MLflow experiment
         mlflow.start_run()  # Start MLflow run
         if torch.cuda.device_count() > 1:
             print(f"Using {torch.cuda.device_count()} GPUs with DataParallel")
@@ -104,10 +117,22 @@ class Solver:
                 else:
                     self.model.save_to_path(self.args['model_path'])
                 print(f"Best model saved at '{self.args['model_path']}'.")
-                mlflow.pytorch.log_model(self.model, "best_model")
+
+                # create an input example for the model using a numpy array
+                input_example = np.random.randn(1, 2, 16000).astype(np.float32)
+                mlflow.pytorch.log_model(
+                    self.model,
+                    "best_model",
+                    input_example=input_example,
+                    registered_model_name="hstasnet"
+                )
+                self.save_to_path(self.args['solver_path'])
 
             self.running_epoch += 1
-        
+        # run tests every five epochs
+        # if self.running_epoch % 5 == 0:
+     
+            self.test()
         self.save_to_path(self.args['solver_path'])
         print(f"Solver saved at '{self.args['solver_path']}'.")
         print('---------------------------------------')
@@ -159,29 +184,188 @@ class Solver:
 
         self.model.eval()
         with torch.no_grad():
-            tst_loss = self._run_one_tst_epoch()
+            test_results = self._run_one_tst_epoch()
+            print(f"Test Summary  | SDR = {test_results['avg_sdr']:.3f} | SIR = {test_results['avg_sir']:.3f} | SAR = {test_results['avg_sar']:.3f}")
+    
+    def plot_spectrogram(self, input_audio, title="Spectrogram", output_path=None):
+        """Plot a spectrogram and save it to a file."""
+        N_FFT = 4096
+        N_HOP = 4
+        stft = torchaudio.transforms.Spectrogram(
+            n_fft=N_FFT,
+            hop_length=N_HOP,
+            power=None,
+        )
+        stft = stft(input_audio)
+       
+        magnitude = stft.abs()
+        spectrogram = 20 * torch.log10(magnitude + 1e-8).numpy()
+        _, axis = plt.subplots(1, 1)
+        axis.imshow(spectrogram, cmap="viridis", vmin=-60, vmax=0, origin="lower", aspect="auto")
+        axis.set_title(title)
+        plt.tight_layout()
+        axis.savefig(output_path)
+    
 
-            print(f"Test Summary  | Loss = {tst_loss:.3f}")
 
     def _run_one_tst_epoch(self):
+        results = {}
+        total_sdr, total_sir, total_sar = 0.0, 0.0, 0.0
+        num_batches = 0
 
-        running_loss = 0.0
-        for i, batch_i in enumerate(tqdm(self.tst_loader, "Testing epoch")):
+        snippet_duration = 30  # 30 seconds
+        sample_rate = self.args['sample_rate']
+        snippet_length = snippet_duration * sample_rate
 
-            # Get the inputs and targets.
-            batch_mixture, batch_sources = batch_i
+        model_sources = self.args['model_srcs']
+        test_tracks = self.args['test']['test_tracks']
+        print(f"Testing on {len(test_tracks)} tracks.")
+        for track_name in test_tracks:
+            track_path = Path(self.args['test']['test_dir']) / track_name
+            mixture_path = track_path / "mixture.wav"
+
+            # Load mixture
+            batch_mixture, _ = torchaudio.load(mixture_path)
             batch_mixture = batch_mixture.to(self.device)
-            batch_sources = batch_sources.to(self.device)
+            batch_mixture = batch_mixture.unsqueeze(0)
+        
+            # Inference
+            batch_outputs = self.model(batch_mixture)
+            pred_sources = batch_outputs.squeeze(0).detach().cpu()
 
-            # Forward pass.
-            batch_length = batch_sources.size(-1)
-            batch_outputs = self.model(batch_mixture, length=batch_length)
+            os.makedirs(f"output/{track_name}", exist_ok=True)
 
-            # Compute loss.
-            loss = self.criterion(batch_outputs, batch_sources, reduction='mean')
-            running_loss += loss.item()
+            out_path = f"output/{track_name}/"
 
-        return running_loss
+            for stem_idx, stem_name in enumerate(model_sources):
+                pred_snippet = pred_sources[stem_idx][:snippet_length]
+                print(pred_snippet.size())
+                # Save prediction snippet
+                # make the directory if it doesn't exist
+              
+                pred_path = f"{out_path}/{stem_name}_ep_{self.running_epoch}_pred.wav"
+
+                torchaudio.save(pred_path, pred_snippet, sample_rate)
+
+                # create a stft of the prediction
+                
+                self.plot_spectrogram(pred_snippet, title=f"{track_name} {stem_name} Prediction", output_path=f"{out_path}/{stem_name}_ep_{self.running_epoch}_stft.png")
+                # save to a pyplot
+                plt.figure()
+                plt.imshow(np.abs(stft), aspect='auto', origin='lower')
+                plt.colorbar()
+                plt.savefig(f"{out_path}/{stem_name}_ep_{self.running_epoch}_stft.png")
+                plt.close()
+
+                mlflow.log_artifact(f"{out_path}/{stem_name}_ep_{self.running_epoch}_stft.png", artifact_path="stft_plots")
+                mlflow.log_artifact(pred_path, artifact_path="audio_snippets")
+
+                # Load ground truth
+                true_path = track_path / f"{stem_name}.wav"
+                if true_path.exists():
+                    true_snippet, _ = torchaudio.load(true_path)
+                    true_snippet = true_snippet.squeeze(0)[:snippet_length]
+
+                    # Save ground truth snippet
+                    gt_path = f"{out_path}/{stem_name}_gt.wav"
+
+                    # create a stft of the ground truth
+                    stft = torch.stft(true_snippet, n_fft=1024, hop_length=256, win_length=1024, window=torch.hann_window(1024))
+                    stft = stft.squeeze(0).cpu().numpy()
+                    print(f"STFT shape: {stft.shape}")  # Debugging info
+                    # save to a pyplot
+                    plt.figure()
+                    plt.imshow(np.abs(stft), aspect='auto', origin='lower')
+                    plt.colorbar()
+                    plt.savefig(f"{out_path}/{stem_name}_gt_stft.png")
+                    plt.close()
+
+                    torchaudio.save(gt_path, true_snippet, sample_rate)
+                    mlflow.log_artifact(gt_path, artifact_path="audio_snippets")
+
+            # Save mixture snippet
+            mixture_snippet = batch_mixture.squeeze(0)[:snippet_length]
+            # put the mixture snipped on cpu
+            mixture_snippet = mixture_snippet.cpu()
+            mixture_snippet_path = f"{out_path}/mixture.wav"
+            # create a stft of the mixture
+            stft = torch.stft(mixture_snippet, n_fft=1024, hop_length=256, win_length=1024, window=torch.hann_window(1024))
+            stft = stft.squeeze(0).cpu().numpy()
+            print(f"STFT shape: {stft.shape}")  # Debugging info
+            # save to a pyplot
+            plt.figure()
+            plt.imshow(np.abs(stft), aspect='auto', origin='lower')
+            plt.colorbar()
+            plt.savefig(f"{out_path}/mixture_stft.png")
+            plt.close()
+
+            torchaudio.save(mixture_snippet_path, mixture_snippet, sample_rate)
+            mlflow.log_artifact(mixture_snippet_path, artifact_path="audio_snippets")
+
+           # Calculate metrics
+            true_sources = []
+            for stem_name in model_sources:
+                true_path = track_path / f"{stem_name}.wav"
+                print(f"Processing source: {stem_name}, Path exists: {true_path.exists()}")  # Debugging info
+                if true_path.exists():
+                    true_audio, _ = torchaudio.load(true_path)
+                    print(f"Loaded audio shape for {stem_name}: {true_audio.shape}")  # Debugging info
+
+                    true_sources.append(true_audio.squeeze(0).cpu().numpy()[:snippet_length])
+
+            if true_sources:
+                true_sources = np.array(true_sources)
+                logging.debug(f"True sources array shape: {true_sources.shape}")  # Debugging info
+                print(f"True sources data: {true_sources}")  # Debugging info
+
+                # collapse mixture to mono
+                batch_mixture = batch_mixture.mean(dim=1)
+
+                # collapse sources to mono
+                pred_sources = pred_sources.mean(axis=1)
+                true_sources = true_sources.mean(axis=1)
+                print(f"Collapsed true sources shape: {true_sources.shape}")  # Debugging info
+
+                # pad the mixture to the same length as the sources
+                batch_mixture = torch.nn.functional.pad(batch_mixture, (0, true_sources.shape[-1] - batch_mixture.shape[-1]))
+                batch_mixture = batch_mixture.cpu().numpy()
+
+                pred_sources = pred_sources.cpu().numpy()
+
+                # ensure pred_sources and true_sources have the same shape
+                min_length = min(pred_sources.shape[-1], true_sources.shape[-1])
+                pred_sources = np.array([ps[..., :min_length] for ps in pred_sources])
+                true_sources = np.array([ts[..., :min_length] for ts in true_sources])
+                batch_mixture = batch_mixture[..., :min_length]
+
+                print(f"Shapes after alignment: Pred sources: {pred_sources.shape}, True sources: {true_sources.shape}, Batch mixture: {batch_mixture.shape}")  # Debugging info
+
+                # if any of the sources are all zeros, skip the track as it can lead to ambiguous results
+                all_zero_sources = [np.all(ts == 0) for ts in true_sources]
+                print(f"All zero sources check: {all_zero_sources}")  # Debugging info
+                if np.any(all_zero_sources):
+                    print(f"Skipping track {track_name} because all sources are zero.")
+                    continue
+
+                metrics = get_metrics(batch_mixture, true_sources, pred_sources, sample_rate=sample_rate, metrics_list=['sdr', 'sir', 'sar'])
+                print(f"Metrics for track {track_name}: {metrics}")  # Debugging info
+
+                total_sdr += metrics['sdr']
+                total_sir += metrics['sir']
+                total_sar += metrics['sar']
+
+                mlflow.log_metrics(metrics, step=self.running_epoch)
+                num_batches += 1
+
+            results['avg_sdr'] = total_sdr / num_batches if num_batches > 0 else 0.0
+            results['avg_sir'] = total_sir / num_batches if num_batches > 0 else 0.0
+            results['avg_sar'] = total_sar / num_batches if num_batches > 0 else 0.0
+            mlflow.log_metrics(results, step=self.running_epoch)
+
+
+            return results
+
+
 
     def _reset(self):
 

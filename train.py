@@ -16,49 +16,6 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-def define_args():
-    """Define the training parameters.
-
-    Returns:
-        args (dict): A dictionary containing the parameters for the training routine and the model.
-    """
-    args = {
-        # Training parameters.
-        'solver_path': Path('out') / 'solvers' / f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pkl",
-        'continue_from': Path('out') / 'models' / 'hstasnet_20250118.pt', #Path('out') / 'models' / 'hstasnet_20250115.pt',
-        # TODO: add support for resuming training from a checkpoint.
-        'batch_size': 32,
-        'num_epochs': 100,
-        'num_workers': 4,
-        'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
-
-        # Optimizer parameters.
-        'learning_rate': 1e-3,
-        'weight_decay': 1e-5,
-
-        # Model parameters.
-        'model_name': 'hstasnet',
-        'model_path': Path('out') / 'models' / f"hstasnet_{datetime.today().strftime('%Y%m%d')}.pt",
-        'model_srcs': ['bass', 'drums', 'other', 'vocals'],
-        'model_args': {
-            'num_sources': 4,
-            'num_channels': 2,
-            'time_win_size': 1024,
-            'time_hop_size': 512,
-            'time_ftr_size': 512,
-            'spec_win_size': 1024,
-            'spec_hop_size': 512,
-            'spec_fft_size': 1024,
-            'rnn_hidden_size': 512,            
-            },
-        "dataset_path": Path('/home/liam/.datasets/') / 'musdb18hq_augmented',
-        # Other parameters.
-        'log_path': os.path.join('out', 'logs', f"hstasnet_{datetime.today().strftime('%Y%m%d')}.log"),
-        }
-
-    return args
-
-
 def define_loaders(args):
     """Define DataLoaders for the training, validation, and test sets.
 
@@ -73,6 +30,7 @@ def define_loaders(args):
         
     root = args['dataset_path']
     sources = args['model_srcs']
+    print(f"Loading dataset from {root}")
 
 
     if not os.path.exists(root):
@@ -81,7 +39,7 @@ def define_loaders(args):
     trn_dataset = MUSDB18Dataset(root, 'train', sources)
     val_dataset = MUSDB18Dataset(root, 'valid', sources)
     tst_dataset = MUSDB18Dataset(root, 'test', sources)
-
+    print(trn_dataset.path)
     # Define DataLoaders.
     trn_loader = DataLoader(trn_dataset, batch_size=args['batch_size'], shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args['batch_size'], shuffle=False)

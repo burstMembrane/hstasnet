@@ -50,6 +50,8 @@ class HSTasnetEvaluator:
                 "prep_time": results["perf_stats"]["segments"][0]["prep_time"],
                 "inference_time": results["perf_stats"]["segments"][0]["inference_time"]
             }
+
+        track_name = results["track_name"]
         df = pd.DataFrame([metrics])
         
         # Ensure output directory exists
@@ -57,7 +59,7 @@ class HSTasnetEvaluator:
         output_path.mkdir(parents=True, exist_ok=True)
         
         # Save to CSV
-        csv_path = output_path / "metrics.csv"
+        csv_path = output_path/ track_name / "metrics.csv"
         df.to_csv(csv_path, index=False)
         logger.info(f"Metrics saved to {csv_path}")
 
@@ -117,6 +119,7 @@ class HSTasnetEvaluator:
 
     def calculate_metrics(self, mixture,  result):
         """Calculate SDR for a single track result"""
+        logger.info(f"Calculating metrics for {result['track_name']}")
         metrics = {}
         # Get predictions and ground truth
         pred_sources = np.array([
