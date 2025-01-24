@@ -91,7 +91,7 @@ def main(args, train=True):
 
     # Save log file.
     os.makedirs(os.path.dirname(args['log_path']), exist_ok=True)
-    os.rename(src='logs/train.log', dst=args['log_path'])
+   
 
     return solver
 

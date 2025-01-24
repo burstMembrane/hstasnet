@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def display_mel_grid(
+def create_mel_grid(
     audio_file_paths,
     num_cols=2,
     num_rows=None,
