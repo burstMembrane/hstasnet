@@ -13,7 +13,6 @@ model_name: "hstasnet"
 model_path: "out/models/hstasnet_20250124.pt"
 solver_path: "out/solvers/hstasnet_20250124.pkl"
 continue_from: "out/models/hstasnet_20250118.pt"
-# TODO: add support for resuming training from a checkpoint.
 dataset_path: /home/liam/.datasets/musdb18hq_augmented
 model_srcs:
   - "bass"
