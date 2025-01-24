@@ -219,8 +219,10 @@ class Solver:
         model_sources = self.args["model_srcs"]
         test_tracks = self.args["test"]["test_tracks"]
         logger.info(f"Testing on {len(test_tracks)} tracks.")
-        for track_name in test_tracks:
+        for track_name in tqdm(test_tracks, "Testing tracks"):
+
             track_path = Path(self.args["test"]["test_dir"]) / track_name
+
             mixture_path = track_path / "mixture.wav"
 
             # Load mixture
