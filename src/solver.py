@@ -105,6 +105,10 @@ class Solver:
 
     def train(self):
         for epoch in range(self.running_epoch, self.num_epochs):
+
+            # it's the first epoch. run the test
+            if epoch == 0:
+                self.test()
             logger.info("---------------------------------------")
 
             # Train.
@@ -138,8 +142,10 @@ class Solver:
 
             # Save model if validation loss improves.
             self.val_loss_history[epoch] = val_loss
+            mlflow.log_metric("val_loss", val_loss, step=epoch)
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
+
                 if isinstance(self.model, torch.nn.DataParallel):
                     self.model.module.save_to_path(self.args["model_path"])
                 else:
