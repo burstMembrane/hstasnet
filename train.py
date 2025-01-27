@@ -79,8 +79,8 @@ def main(args, train=True):
     optimizer = torch.optim.Adam(model.parameters(), lr=args['learning_rate'], weight_decay=args['weight_decay'])
 
     # Define scheduler.
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1.0) 
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.125, patience=3)
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1.0) 
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.125, patience=3)
 
     # Define solver.
     solver = Solver(model, criterion, optimizer, scheduler, loaders, args, device=args['device'])

@@ -5,7 +5,7 @@ num_workers: 4
 device: "cuda"  # or "cpu"
 sample_rate: 44100
 # Optimizer parameters
-learning_rate: 0.001
+learning_rate: 0.0001
 weight_decay: 0.00001
 
 # Model parameters
@@ -36,6 +36,6 @@ test:
   test_dir: /home/liam/.datasets/musdb18hq_augmented/test 
   test_tracks:
      - track_000110
-     - track_000605
+     - track_000605                                               
      - track_000402
-     - track_001607
+     - track_001607    

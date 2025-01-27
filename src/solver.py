@@ -69,7 +69,7 @@ class Solver:
 
         mlflow.enable_system_metrics_logging()  # Enable system metrics logging
         mlflow.set_experiment(
-            f"/hstasnet"
+            f"hstasnet"
         )  # Set MLflow experiment
         mlflow.start_run()  # Start MLflow run
         if torch.cuda.device_count() > 1:
@@ -104,11 +104,13 @@ class Solver:
         )
 
     def train(self):
+        ran_init_test = False
         for epoch in range(self.running_epoch, self.num_epochs):
 
             # it's the first epoch. run the test
-            if epoch == 0:
+            if not ran_init_test:
                 self.test()
+                ran_init_test = True
             logger.info("---------------------------------------")
 
             # Train.
@@ -228,6 +230,17 @@ class Solver:
 
         model_sources = self.args["model_srcs"]
         test_tracks = self.args["test"]["test_tracks"]
+        # verify the test track wav_file_paths
+        for track_name in test_tracks:
+            track_path = Path(self.args["test"]["test_dir"]) / track_name
+            mixture_path = track_path / "mixture.wav"
+            if not mixture_path.exists():
+                logger.info(f"Skipping track {track_name} as mixture does not exist")
+                test_tracks.remove(track_name)
+
+
+
+
         logger.info(f"Testing on {len(test_tracks)} tracks.")
 
 
@@ -296,12 +309,12 @@ class Solver:
 
                 mlflow.log_metrics(metrics, step=self.running_epoch)
                 num_batches += 1
-            results["avg_sdr"] = total_sdr / num_batches if num_batches > 0 else 0.0
-            results["avg_sir"] = total_sir / num_batches if num_batches > 0 else 0.0
-            results["avg_sar"] = total_sar / num_batches if num_batches > 0 else 0.0
-            mlflow.log_metrics(results, step=self.running_epoch)
+        results["avg_sdr"] = total_sdr / num_batches if num_batches > 0 else 0.0
+        results["avg_sir"] = total_sir / num_batches if num_batches > 0 else 0.0
+        results["avg_sar"] = total_sar / num_batches if num_batches > 0 else 0.0
+        mlflow.log_metrics(results, step=self.running_epoch)
 
-            return results
+        return results
 
     def load_batch_mixture(self, mixture_path):
         batch_mixture, _ = torchaudio.load(mixture_path)
