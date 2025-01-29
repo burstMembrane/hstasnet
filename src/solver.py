@@ -137,7 +137,7 @@ class Solver:
             mlflow.log_metric("val_loss", val_loss, step=epoch)
 
             # Update scheduler.
-            self.scheduler.step()
+            self.scheduler.step(val_loss)
             last_lr = self.scheduler.get_last_lr()[0]
             logger.info(f"\tLearning rate = {last_lr:.6f}")
             mlflow.log_metric("learning_rate", last_lr, step=epoch)
@@ -268,10 +268,10 @@ class Solver:
             create_mel_grid(
                 wav_file_paths,
                 num_cols=2,
-                output_path=f"{out_path}/mel_grid.png",
+                output_path=f"{out_path}/mel_grid_ep_{self.running_epoch}.png",
                 display=False,
             )
-            mlflow.log_artifact(f"{out_path}/mel_grid.png", artifact_path=f"audio_snippets/{track_name}/mel_grid")
+            mlflow.log_artifact(f"{out_path}/mel_grid_ep_{self.running_epoch}.png", artifact_path=f"audio_snippets/{track_name}/mel_grid")
             # Save mixture snippet
             self.save_mixture(sample_rate, snippet_length, track_name, mixture, out_path)
             # Calculate metrics
