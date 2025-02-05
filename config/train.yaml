@@ -1,7 +1,7 @@
 
 batch_size: 32
 num_epochs: 200
-num_workers: 4
+num_workers: 16
 device: "cuda"  # or "cpu"
 sample_rate: 44100
 # Optimizer parameters
@@ -10,9 +10,9 @@ weight_decay: 0.00001
 
 # Model parameters
 model_name: "hstasnet"
-model_path: "out/models/hstasnet_20250124.pt"
-solver_path: "out/solvers/hstasnet_20250124.pkl"
-continue_from: "out/models/hstasnet_20250118.pt"
+model_path: "out/models/hstasnet_20250129.pt"
+solver_path: "out/solvers/hstasnet_20250129.pkl"
+continue_from: "out/models/hstasnet_20250124.pt"
 dataset_path: /home/liam/.datasets/musdb18hq_augmented
 model_srcs:
   - "bass"
