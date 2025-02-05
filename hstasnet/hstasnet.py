@@ -2,23 +2,32 @@ import torch  # Main PyTorch library for tensors
 import torch.nn as nn  # Neural network layers (e.g. Linear, LSTM, etc.)
 import torch.nn.functional as ff  # Functional interface for common operations
 
-from spec_codec import SpecEncoder, SpecDecoder  # Modules for STFT-based encoding/decoding
-from time_codec import TimeEncoder, TimeDecoder  # Modules for learned convolutional basis
-from memory import Memory  # Custom LSTM-based "Memory" module
+from hstasnet.spec_codec import (
+    SpecEncoder,
+    SpecDecoder,
+)  # Modules for STFT-based encoding/decoding
+from hstasnet.time_codec import (
+    TimeEncoder,
+    TimeDecoder,
+)  # Modules for learned convolutional basis
+from hstasnet.memory import Memory  # Custom LSTM-based "Memory" module
+
 
 class HSTasNet(nn.Module):
-    def __init__(self,
-                 num_sources,
-                 num_channels,
-                 time_win_size: int = 1024,
-                 time_hop_size: int = 512,
-                 time_ftr_size: int = 1000,
-                 spec_win_size: int = 1024,
-                 spec_hop_size: int = 512,
-                 spec_fft_size: int = 1024,
-                 rnn_hidden_size: int = 1000,
-                 rnn_num_layers: int = 1,
-                 device=torch.device('cpu')):
+    def __init__(
+        self,
+        num_sources,
+        num_channels,
+        time_win_size: int = 1024,
+        time_hop_size: int = 512,
+        time_ftr_size: int = 1000,
+        spec_win_size: int = 1024,
+        spec_hop_size: int = 512,
+        spec_fft_size: int = 1024,
+        rnn_hidden_size: int = 1000,
+        rnn_num_layers: int = 1,
+        device=torch.device("cpu"),
+    ):
         super().__init__()  # Init the superclass (nn.Module)
 
         self.num_sources = num_sources  # Number of target sources (vocals, drums, etc.)
@@ -34,23 +43,33 @@ class HSTasNet(nn.Module):
 
         # Calculate feature sizes for time and spec. This is the dimensionality after encoder.
         time_feature_size = time_ftr_size
-        spec_feature_size = (spec_win_size // 2) + 1  # For real-valued STFT with n_fft=win_size
+        spec_feature_size = (
+            spec_win_size // 2
+        ) + 1  # For real-valued STFT with n_fft=win_size
         self.time_feature_size = time_feature_size
         self.spec_feature_size = spec_feature_size
 
         # Assertions ensure time/spec windows/hops match for hybrid approach (Section 3.3).
-        assert (time_win_size % time_hop_size) == 0, \
-            f"time_win_size ({time_win_size}) must be a multiple of time_hop_size ({time_hop_size})"
-        assert (spec_win_size % spec_hop_size) == 0, \
-            f"spec_win_size ({spec_win_size}) must be a multiple of spec_hop_size ({spec_hop_size})"
-        assert time_win_size == spec_win_size, \
-            f"time_win_size ({time_win_size}) must equal spec_win_size ({spec_win_size})"
-        assert time_hop_size == spec_hop_size, \
-            f"time_hop_size ({time_hop_size}) must equal spec_hop_size ({spec_hop_size})"
+        assert (
+            time_win_size % time_hop_size
+        ) == 0, f"time_win_size ({time_win_size}) must be a multiple of time_hop_size ({time_hop_size})"
+        assert (
+            spec_win_size % spec_hop_size
+        ) == 0, f"spec_win_size ({spec_win_size}) must be a multiple of spec_hop_size ({spec_hop_size})"
+        assert (
+            time_win_size == spec_win_size
+        ), f"time_win_size ({time_win_size}) must equal spec_win_size ({spec_win_size})"
+        assert (
+            time_hop_size == spec_hop_size
+        ), f"time_hop_size ({time_hop_size}) must equal spec_hop_size ({spec_hop_size})"
 
         # Time-domain encoder & decoder (Section 3.2 for TasNet-like approach).
-        self.time_encoder = TimeEncoder(N=time_win_size, O=time_hop_size, M=time_ftr_size, device=device)
-        self.time_decoder = TimeDecoder(N=time_win_size, O=time_hop_size, M=time_ftr_size, device=device)
+        self.time_encoder = TimeEncoder(
+            N=time_win_size, O=time_hop_size, M=time_ftr_size, device=device
+        )
+        self.time_decoder = TimeDecoder(
+            N=time_win_size, O=time_hop_size, M=time_ftr_size, device=device
+        )
 
         # LSTM block for time features input (Memory is a custom LSTM wrapper).
         self.time_rnn_in = Memory(
@@ -84,14 +103,14 @@ class HSTasNet(nn.Module):
             n_win=spec_win_size,
             n_hop=spec_hop_size,
             n_fft=spec_fft_size,
-            window='hamming',  # Window function for STFT
+            window="hamming",  # Window function for STFT
             device=device,
         )
         self.spec_decoder = SpecDecoder(
             n_win=spec_win_size,
             n_hop=spec_hop_size,
             n_fft=spec_fft_size,
-            window='hamming',
+            window="hamming",
             device=device,
         )
 
@@ -131,9 +150,9 @@ class HSTasNet(nn.Module):
         )
 
     def forward(self, waveform, length=None):
-        """ Forward pass (Section 3.3: time path + freq path -> hybrid -> mask application -> decode).
-            waveform: [B, C, L]
-            length (optional): original length to pad after separation
+        """Forward pass (Section 3.3: time path + freq path -> hybrid -> mask application -> decode).
+        waveform: [B, C, L]
+        length (optional): original length to pad after separation
         """
         B, C, L = waveform.size()  # Extract shapes
         x = waveform.view(B * C, L)  # Flatten channels into batch dimension
@@ -171,20 +190,20 @@ class HSTasNet(nn.Module):
         y_time, y_spec = torch.split(y, H, dim=2)
 
         # Additional RNN + skip-connection in time domain
-        y_time = self.time_rnn_out(y_time)       # [B, T, H]
-        s_time_fc = self.time_skip_fc(s_time)    # [B, T, H] skip
-        y_time = y_time + s_time_fc             # Combine skip and RNN output
+        y_time = self.time_rnn_out(y_time)  # [B, T, H]
+        s_time_fc = self.time_skip_fc(s_time)  # [B, T, H] skip
+        y_time = y_time + s_time_fc  # Combine skip and RNN output
 
         # Additional RNN + skip-connection in frequency domain
-        y_spec = self.spec_rnn_out(y_spec)       # [B, T, H]
-        s_spec_fc = self.spec_skip_fc(s_spec)    # [B, T, H] skip
-        y_spec = y_spec + s_spec_fc             # Combine skip and RNN output
+        y_spec = self.spec_rnn_out(y_spec)  # [B, T, H]
+        s_spec_fc = self.spec_skip_fc(s_spec)  # [B, T, H] skip
+        y_spec = y_spec + s_spec_fc  # Combine skip and RNN output
 
         # Time-domain mask estimation -> shape [B, T, S*C*M], then rearrange
         m_time = self.time_mask_fc(y_time)
         S, C, M = self.num_sources, self.num_channels, self.time_feature_size
-        m_time = m_time.view(B, T, S, C, M)         # [B, T, S, C, M]
-        m_time = m_time.permute(0, 2, 3, 1, 4)      # [B, S, C, T, M]
+        m_time = m_time.view(B, T, S, C, M)  # [B, T, S, C, M]
+        m_time = m_time.permute(0, 2, 3, 1, 4)  # [B, S, C, T, M]
 
         # Expand x_time for all sources, shape [B, S, C, T, M]
         x_time = x_time.view(B, 1, C, T, M).expand(B, S, C, T, M)
@@ -194,8 +213,8 @@ class HSTasNet(nn.Module):
         # Frequency-domain mask estimation -> shape [B, T, S*C*F], then rearrange
         m_spec = self.spec_mask_fc(y_spec)
         S, C, F = self.num_sources, self.num_channels, self.spec_feature_size
-        m_spec = m_spec.view(B, T, S, C, F)         # [B, T, S, C, F]
-        m_spec = m_spec.permute(0, 2, 3, 1, 4)      # [B, S, C, T, F]
+        m_spec = m_spec.view(B, T, S, C, F)  # [B, T, S, C, F]
+        m_spec = m_spec.permute(0, 2, 3, 1, 4)  # [B, S, C, T, F]
 
         # Expand x_spec for all sources, shape [B, S, C, T, F]
         x_spec = x_spec.view(B, 1, C, T, F).expand(B, S, C, T, F)
@@ -204,15 +223,19 @@ class HSTasNet(nn.Module):
 
         # Decode time-domain frames -> shape [(B*S*C), T, M] -> [B*S*C, L]
         y_time = y_time.reshape(B * S * C, T, M)
-        x_norm = x_norm.view(B, 1, C, T, 1).expand(B, S, C, T, 1).reshape(B * S * C, T, 1)
+        x_norm = (
+            x_norm.view(B, 1, C, T, 1).expand(B, S, C, T, 1).reshape(B * S * C, T, 1)
+        )
         z_time = self.time_decoder(y_time, x_norm)  # [B*S*C, L]
-        z_time = z_time.view(B, S, C, -1)           # [B, S, C, L]
+        z_time = z_time.view(B, S, C, -1)  # [B, S, C, L]
 
         # Decode frequency-domain frames -> shape [(B*S*C), T, F] -> [B*S*C, L]
         y_spec = y_spec.reshape(B * S * C, T, F)
-        x_angl = x_angl.view(B, 1, C, T, F).expand(B, S, C, T, F).reshape(B * S * C, T, F)
+        x_angl = (
+            x_angl.view(B, 1, C, T, F).expand(B, S, C, T, F).reshape(B * S * C, T, F)
+        )
         z_spec = self.spec_decoder(y_spec, x_angl)  # [B*S*C, L]
-        z_spec = z_spec.view(B, S, C, -1)           # [B, S, C, L]
+        z_spec = z_spec.view(B, S, C, -1)  # [B, S, C, L]
 
         # Sum time + freq domain outputs (Section 3.3: see Fig. 1 in the paper)
         out = z_time + z_spec  # [B, S, C, L]
@@ -220,7 +243,7 @@ class HSTasNet(nn.Module):
         # Optional zero-padding to match 'length' if specified
         if length:
             L_out = out.size(-1)
-            out = ff.pad(out, (0, length - L_out), 'constant')
+            out = ff.pad(out, (0, length - L_out), "constant")
 
         return out.contiguous()  # Final shape [B, S, C, L]
 
@@ -228,42 +251,48 @@ class HSTasNet(nn.Module):
         # Return model constructor args/kwargs for easy serialization
         args = [self.num_sources, self.num_channels]
         kwargs = {
-            'time_win_size': self.time_win_size,
-            'time_hop_size': self.time_hop_size,
-            'time_ftr_size': self.time_ftr_size,
-            'spec_win_size': self.spec_win_size,
-            'spec_hop_size': self.spec_hop_size,
-            'spec_fft_size': self.spec_fft_size,
-            'rnn_hidden_size': self.rnn_hidden_size,
+            "time_win_size": self.time_win_size,
+            "time_hop_size": self.time_hop_size,
+            "time_ftr_size": self.time_ftr_size,
+            "spec_win_size": self.spec_win_size,
+            "spec_hop_size": self.spec_hop_size,
+            "spec_fft_size": self.spec_fft_size,
+            "rnn_hidden_size": self.rnn_hidden_size,
         }
         return args, kwargs
 
     def serialize(self):
-        """ Packages model class + arguments + weights. 
-            Refer Section 5.2 in the paper (Implementation details). """
+        """Packages model class + arguments + weights.
+        Refer Section 5.2 in the paper (Implementation details)."""
         klass = self.__class__
         args, kwargs = self._init_args_kwargs()
         state_dict = self.state_dict()
         package = {
-            'klass': klass,
-            'args': args,
-            'kwargs': kwargs,
-            'state_dict': state_dict,
+            "klass": klass,
+            "args": args,
+            "kwargs": kwargs,
+            "state_dict": state_dict,
         }
         return package
 
     def save_to_path(self, model_path):
-        """ Saves the entire model to disk. 
-            The paper references storing model weights for runtime usage. """
+        """Saves the entire model to disk.
+        The paper references storing model weights for runtime usage."""
         model_package = self.serialize()
         torch.save(model_package, model_path)
         return model_path
 
-if __name__ == '__main__':
-    DEVICE = torch.device('cpu')  # Using CPU in this example
-    B, C, L, S = 10, 2, 100000, 4  # Example: batch=10, 2-channels, length=100k, 4 sources
+
+if __name__ == "__main__":
+    DEVICE = torch.device("cpu")  # Using CPU in this example
+    B, C, L, S = (
+        10,
+        2,
+        100000,
+        4,
+    )  # Example: batch=10, 2-channels, length=100k, 4 sources
     x = torch.randn(B, C, L, device=DEVICE)  # Random input
-    print(f'{x.size() = }')  # Debug print
+    print(f"{x.size() = }")  # Debug print
 
     # Instantiate the model, as described in Section 3 for real-time separation
     model = HSTasNet(
@@ -281,4 +310,4 @@ if __name__ == '__main__':
     )
 
     y = model(x, length=L)  # Forward pass with optional length
-    print(f'{y.size() = }')  # Outputs [B, S, C, L]
+    print(f"{y.size() = }")  # Outputs [B, S, C, L]
